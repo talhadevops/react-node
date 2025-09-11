@@ -1,0 +1,41 @@
+name: Build and Push to Public ECR
+
+on:
+  push:
+    branches:
+      - '**'  # Trigger on every commit to any branch
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1  # Required for public ECR
+
+    - name: Login to Public ECR
+      run: |
+        aws ecr-public get-login-password --region us-east-1 | \
+        docker login --username AWS --password-stdin public.ecr.aws
+
+    - name: Build and Tag Docker Image
+      run: |
+        IMAGE_BASE=public.ecr.aws/i5u5r0e0/stagging
+        VERSION=${{ github.run_number }}
+        echo "Building image with tags: latest and $VERSION"
+        docker build -t $IMAGE_BASE:latest -t $IMAGE_BASE:$VERSION .
+
+    - name: Push Docker Image to Public ECR
+      run: |
+        IMAGE_BASE=public.ecr.aws/i5u5r0e0/stagging
+        VERSION=${{ github.run_number }}
+        echo "Pushing image: $IMAGE_BASE:latest and $IMAGE_BASE:$VERSION"
+        docker push $IMAGE_BASE:latest
+        docker push $IMAGE_BASE:$VERSION
