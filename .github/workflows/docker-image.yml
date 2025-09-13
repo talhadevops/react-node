@@ -7,37 +7,79 @@ on:
     branches:
       - '**'  # Trigger on every commit to any branch
 
+permissions:
+  contents: write
+
+env:
+  AWS_REGION: us-east-1
+  IMAGE_BASE: public.ecr.aws/i5u5r0e0/stagging
+  VERSION: ${{ github.run_number }}
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
+      - name: Checkout app repo
+        uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: us-east-1  # Required for public ECR
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Login to Public ECR
-      run: |
-        aws ecr-public get-login-password --region us-east-1 | \
-        docker login --username AWS --password-stdin public.ecr.aws
+      - name: Login to Public ECR
+        run: |
+          aws ecr-public get-login-password --region $AWS_REGION | \
+          docker login --username AWS --password-stdin public.ecr.aws
 
-    - name: Build and Tag Docker Image
-      run: |
-        IMAGE_BASE=public.ecr.aws/i5u5r0e0/stagging
-        VERSION=${{ github.run_number }}
-        echo "Building image with tags: latest and $VERSION"
-        docker build -t $IMAGE_BASE:latest -t $IMAGE_BASE:$VERSION .
+      - name: Build and tag Docker image
+        run: |
+          echo "Building image: $IMAGE_BASE:latest and $IMAGE_BASE:$VERSION"
+          docker build -t $IMAGE_BASE:latest -t $IMAGE_BASE:$VERSION .
 
-    - name: Push Docker Image to Public ECR
-      run: |
-        IMAGE_BASE=public.ecr.aws/i5u5r0e0/stagging
-        VERSION=${{ github.run_number }}
-        echo "Pushing image: $IMAGE_BASE:latest and $IMAGE_BASE:$VERSION"
-        docker push $IMAGE_BASE:latest
-        docker push $IMAGE_BASE:$VERSION
+      - name: Push Docker image to Public ECR
+        run: |
+          echo "Pushing: $IMAGE_BASE:latest and $IMAGE_BASE:$VERSION"
+          docker push $IMAGE_BASE:latest
+          docker push $IMAGE_BASE:$VERSION
+
+      # Update Helm values in talhadevops/devops-recipies so Argo CD picks the new tag
+      - name: Checkout devops-recipies (Helm repo)
+        uses: actions/checkout@v4
+        with:
+          repository: talhadevops/devops-recipies
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.DEVOPS_RECIPIES_TOKEN }}  # PAT with contents:write
+          path: devops-recipies
+
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Bump image in example-react values.yaml and push
+        working-directory: devops-recipies
+        env:
+          IMAGE_BASE: ${{ env.IMAGE_BASE }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          FILE=charts/example-react/values.yaml
+          if [ ! -f "$FILE" ]; then
+            echo "values.yaml not found at $FILE"
+            exit 1
+          fi
+
+          echo "Updating $FILE to image: ${IMAGE_BASE}:${VERSION}"
+          yq -i '
+            .image.repository = env(IMAGE_BASE) |
+            .image.tag = env(VERSION) |
+            .image.pullPolicy = "IfNotPresent"
+          ' "$FILE"
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add "$FILE"
+          git commit -m "chore(example-react): bump image to ${IMAGE_BASE}:${VERSION} [skip ci]" || echo "No changes to commit"
+          git push
