@@ -46,24 +46,16 @@ jobs:
           docker push $IMAGE_BASE:latest
           docker push $IMAGE_BASE:$VERSION
 
-      # Guard: ensure the PAT secret exists before checking out external repo
-      - name: Ensure DEVOPS_RECIPIES_TOKEN is set
+      # Clone devops-recipies with PAT and set up push auth
+      - name: Clone devops-recipies (Helm repo)
         env:
-          TOKEN: ${{ secrets.DEVOPS_RECIPIES_TOKEN }}
+          PAT: ${{ secrets.DEVOPS_RECIPIES_TOKEN }}
         run: |
-          if [ -z "$TOKEN" ]; then
+          if [ -z "$PAT" ]; then
             echo "Missing DEVOPS_RECIPIES_TOKEN secret. Create a fine-grained PAT with Contents: Read & Write on talhadevops/devops-recipies and add it as a repo secret named DEVOPS_RECIPIES_TOKEN." && exit 1
           fi
-
-      # Update Helm values in talhadevops/devops-recipies so Argo CD picks the new tag
-      - name: Checkout devops-recipies (Helm repo)
-        uses: actions/checkout@v4
-        with:
-          repository: talhadevops/devops-recipies
-          ref: main
-          fetch-depth: 0
-          token: ${{ secrets.DEVOPS_RECIPIES_TOKEN }}  # PAT with contents:write
-          path: devops-recipies
+          git config --global url."https://x-access-token:${PAT}@github.com/".insteadOf https://github.com/
+          git clone --depth 1 https://github.com/talhadevops/devops-recipies.git devops-recipies
 
       - name: Install yq
         uses: mikefarah/yq@v4
