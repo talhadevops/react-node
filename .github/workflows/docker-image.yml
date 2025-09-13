@@ -46,16 +46,15 @@ jobs:
           docker push $IMAGE_BASE:latest
           docker push $IMAGE_BASE:$VERSION
 
-      # Clone devops-recipies with PAT and set up push auth
       - name: Clone devops-recipies (Helm repo)
         env:
           PAT: ${{ secrets.DEVOPS_RECIPIES_TOKEN }}
         run: |
           if [ -z "$PAT" ]; then
-            echo "Missing DEVOPS_RECIPIES_TOKEN secret. Create a fine-grained PAT with Contents: Read & Write on talhadevops/devops-recipies and add it as a repo secret named DEVOPS_RECIPIES_TOKEN." && exit 1
+            echo "❌ Missing DEVOPS_RECIPIES_TOKEN secret. Please create a fine-grained PAT with Contents: Read & Write on talhadevops/devops-recipies and add it as a repo secret named DEVOPS_RECIPIES_TOKEN." && exit 1
           fi
-          git config --global url."https://x-access-token:${PAT}@github.com/".insteadOf https://github.com/
-          git clone --depth 1 https://github.com/talhadevops/devops-recipies.git devops-recipies
+          echo "🔐 Cloning devops-recipies with authenticated token..."
+          git clone --depth 1 https://talhadevops:${PAT}@github.com/talhadevops/devops-recipies.git devops-recipies
 
       - name: Install yq
         uses: mikefarah/yq@v4
@@ -68,11 +67,11 @@ jobs:
         run: |
           FILE=charts/example-react/values.yaml
           if [ ! -f "$FILE" ]; then
-            echo "values.yaml not found at $FILE"
+            echo "❌ values.yaml not found at $FILE"
             exit 1
           fi
 
-          echo "Updating $FILE to image: ${IMAGE_BASE}:${VERSION}"
+          echo "🔧 Updating $FILE to image: ${IMAGE_BASE}:${VERSION}"
           yq -i '
             .image.repository = env(IMAGE_BASE) |
             .image.tag = env(VERSION) |
